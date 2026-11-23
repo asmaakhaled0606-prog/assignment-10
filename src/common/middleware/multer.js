@@ -2,7 +2,7 @@ import multer from "multer";
 import { randomUUID } from "crypto";
 import fs from "fs";
 
-export const multerLocal = ( customPath = "General", customTypes = [] = {}) => {
+export const multerLocal = (customPath = "General", customTypes = []) => {
     const pathFolder = `uploads/${customPath}`
     if (!fs.existsSync(pathFolder)) {
         fs.mkdirSync(pathFolder, { recursive: true })

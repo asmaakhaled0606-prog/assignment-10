@@ -27,7 +27,14 @@ export const signInSchema = {
     body: joi.object({
         email: generalRules.email.required(),
         password: generalRules.password.required()
-    })
+    }).required()
+}
+
+export const confirmEmailSchema = {
+    body: joi.object({
+        email: generalRules.email.required(),
+        otp: joi.string().pattern(/^[0-9]{6}$/).required()
+    }).required()
 }
 
 export const refreshTokenSchema = {
@@ -58,5 +65,5 @@ export const updatePasswordSchema = {
         oldPassword: generalRules.password.required(),
         newPassword: generalRules.password.required(),
         cPassword: joi.string().valid(joi.ref("newPassword")).required()
-    })
+    }).required()
 }

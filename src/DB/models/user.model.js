@@ -58,10 +58,7 @@ const userSchema = new mongoose.Schema({
         enum: Object.values(ProviderEnum),
         default: ProviderEnum.system
     },
-    isConfirmed: {
-        type: Boolean,
-        default: false
-    }
+    isConfirmed: Boolean
 }, {
     timestamps: true,
     strict: true,

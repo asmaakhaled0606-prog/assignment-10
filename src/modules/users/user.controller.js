@@ -6,7 +6,7 @@ import { RoleEnum } from "../../common/enum/user.enum.js";
 import { Validation } from "../../common/middleware/validation.js";
 import {
     refreshTokenSchema, signInSchema, signUpSchema, shareProfileSchema, updateProfileSchema,
-    updatePasswordSchema
+    updatePasswordSchema, confirmEmailSchema
 } from "./user.validation.js";
 import { multerLocal } from "../../common/middleware/multer.js";
 const userRouter = Router();
@@ -30,7 +30,15 @@ userRouter.get("/profile", authentication, US.getProfile);
 
 userRouter.patch("/update-profile", Validation(updateProfileSchema), authentication, US.updateProfile);
 
+userRouter.patch("/resend-otp", US.resendOtp);
+
 userRouter.patch("/update-password", Validation(updatePasswordSchema), authentication, US.updatePassword);
+
+userRouter.patch("/forgot-password", US.forgotPassword);
+
+userRouter.patch("/reset-password", US.resetPassword);
+
+userRouter.patch("/confirm-email", Validation(confirmEmailSchema), US.confirmEmail);
 
 userRouter.patch("/logout", authentication, US.logout);
 

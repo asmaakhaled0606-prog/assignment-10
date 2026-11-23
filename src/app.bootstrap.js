@@ -3,6 +3,7 @@ import connectDB from "./DB/connectionDB.js";
 import userRouter from "./modules/users/user.controller.js";
 import cors from "cors";
 import connectRedis from "./DB/connection.redis.js";
+import messageRouter from "./modules/messages/message.controller.js";
 
 const app = express();
 const port = 3000;
@@ -16,13 +17,15 @@ const bootstrap = async () => {
 
     app.use(express.json());
 
-    await connectDB();
+    await connectDB(); 
 
     await connectRedis();
 
     app.get("/", (req, res, next) => res.status(200).json({ message: "Welcome on Sra7a App....😍" }));
 
     app.use("/users", userRouter);
+
+    app.use("/messages", messageRouter)
 
     app.use("{/*demo}", (req, res, next) => {
         throw new Error(`Url: ${req.originalUrl} with method: ${req.method} not found`, { cause: 404 })

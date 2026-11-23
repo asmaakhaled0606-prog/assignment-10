@@ -29,6 +29,8 @@ export const authentication = async (req, res, next) => {
         throw new Error("user doesn't exist", { cause: 400 })
     }
 
+    if(!user?.isConfirmed)throw new Error("user not confirmed yet", { cause: 400 })
+
     if (user?.changeCredentialAt?.getTime() > decoded?.iat * 1000) {
         throw new Error("token expired", { cause: 400 })
     }

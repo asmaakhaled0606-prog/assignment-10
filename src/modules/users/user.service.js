@@ -8,13 +8,43 @@ import { ProviderEnum } from "../../common/enum/user.enum.js";
 const client = new OAuth2Client();
 import { randomUUID } from "node:crypto";
 import joi from "joi";
-import { deleteKey, keys, setValue } from "../../DB/service/redis.service.js";
+import { deleteKey, getValue, incr, keys, setValue, ttl } from "../../DB/service/redis.service.js";
+import sendEmail, { generate_OTP } from "../../common/service/sendEmail.js";
+import { compareSync, hashSync } from "bcrypt";
+import { eventEmitter } from "../../common/utils/events.js";
+import { otpEmailTemplate } from "../../common/utils/emailTemplate.js";
+import { sendEmailOtp } from "./user.helper.js";
+
+
 
 //-----------------------signUp---------------------------
 
 export const signUp = async (req, res, next) => {
 
     const { fName, lName, email, password, age, gender, phone } = req.body;
+
+    const otp = await generate_OTP()
+    const otpHash = await Hash(otp)
+
+    eventEmitter.emit("confirm_email", async () => {
+        await sendEmail({
+            to: email,
+            subject: "Confirm Email",
+            html: `<h1>otp:${otp}</h1>`
+        })
+    })
+
+    await setValue({
+        key: `otp::${email}`,
+        value: otpHash,
+        ttl: 60 * 2
+    })
+
+    await setValue({
+        key: `otp::max::${email}`,
+        value: 1,
+        ttl: 60 * 5
+    })
 
     if (await userModel.findOne({ email: email.toLowerCase() })) {
         throw new Error("email already exists")
@@ -41,6 +71,94 @@ export const signUp = async (req, res, next) => {
     })
     console.log(user)
     return res.status(201).json({ message: "user created", user })
+}
+
+
+//-----------------------resendOtp---------------------------
+
+export const resendOtp = async (req, res, next) => {
+
+    const { email } = req.body;
+
+    await sendEmailOtp({ email, isConfirmed: false })
+
+    return res.status(201).json({ message: "done" })
+}
+
+
+//-----------------------confirmEmail---------------------------
+
+export const confirmEmail = async (req, res, next) => {
+
+    const { email, otp } = req.body;
+
+    const otpValue = await getValue(`otp::${email}`)
+    if (!otpValue) {
+        throw new Error("otp expired", { cause: 400 })
+    }
+
+    if (!compareSync(otp, otpValue)) {
+        throw new Error("invalid otp", { cause: 400 })
+    }
+
+    const user = await dbService.findOneAndUpdate({
+        model: userModel,
+        filter: {
+            email,
+            isConfirmed: { $exists: false }
+        },
+        update: {
+            isConfirmed: true
+        }
+    })
+
+    if (!user) {
+        throw new Error("user doesnt exist or already confirmed", { cause: 400 })
+    }
+
+    await deleteKey(`otp::${email}`)
+
+    return res.status(200).json({ message: "done", user })
+}
+
+
+//-----------------------signIn---------------------------
+
+export const signIn = async (req, res, next) => {
+
+    const { email, password } = req.body;
+
+    const user = await dbService.findOne({
+        model: userModel,
+        filter: {
+            email: email.toLowerCase(),
+            isConfirmed: { $exists: true },
+            provider: ProviderEnum.system
+        }
+    });
+    if (!user) {
+        throw new Error("email doesn't exist or you can login where you signed up", { cause: 400 })
+    }
+
+    if (!await Compare(password, user.password)) {
+        throw new Error("inValid password")
+    }
+
+    const tokenId = randomUUID();
+
+    const access_token = jwt.sign({ id: user._id, email: user.email }, "asmaa123", {
+        expiresIn: 60 * 5,
+        audience: "http://localhost:4000",
+        issuer: "http://localhost:3000",
+        jwtid: tokenId
+    })
+    const refresh_token = jwt.sign({ id: user._id, email: user.email }, "khaled123", {
+        expiresIn: 60 * 60,
+        jwtid: tokenId
+    })
+
+
+    return res.status(200).json({ message: "done", tokens: { access_token, refresh_token } })
 }
 
 
@@ -79,42 +197,6 @@ export const signUpWithGmail = async (req, res, next) => {
     })
 
     const refresh_token = jwt.sign({ id: user._id, email: user.email }, "khaled123")
-
-    return res.status(200).json({ message: "done", tokens: { access_token, refresh_token } })
-}
-
-
-//-----------------------signIn---------------------------
-
-export const signIn = async (req, res, next) => {
-
-    const { email, password } = req.body;
-
-    const user = await dbService.findOne({
-        model: userModel,
-        filter: { email: email.toLowerCase(), provider: ProviderEnum.system }
-    });
-    if (!user) {
-        throw new Error("email doesn't exist or you can login where you signed up", { cause: 400 })
-    }
-
-    if (!await Compare(password, user.password)) {
-        throw new Error("inValid password")
-    }
-
-    const tokenId = randomUUID();
-
-    const access_token = jwt.sign({ id: user._id, email: user.email }, "asmaa123", {
-        expiresIn: 60 * 5,
-        audience: "http://localhost:4000",
-        issuer: "http://localhost:3000",
-        jwtid: tokenId
-    })
-    const refresh_token = jwt.sign({ id: user._id, email: user.email }, "khaled123", {
-        expiresIn: 60 * 60,
-        jwtid: tokenId
-    })
-
 
     return res.status(200).json({ message: "done", tokens: { access_token, refresh_token } })
 }
@@ -241,11 +323,11 @@ export const logout = async (req, res, next) => {
         await req.user.save()
         await deleteKey(await keys(`revoke_token::${req.user._id}`))
     } else {
-        console.log(req.decoded.exp - Math.floor((Date.now()/1000)))
+        console.log(req.decoded.exp - Math.floor((Date.now() / 1000)))
         await setValue({
-            key:`revoke_token::${req.user._id}::${req.decoded.jti}`,
-            value:`${req.decoded.jti}`,
-            ttl: req.decoded.exp - Math.floor((Date.now()/1000))
+            key: `revoke_token::${req.user._id}::${req.decoded.jti}`,
+            value: `${req.decoded.jti}`,
+            ttl: req.decoded.exp - Math.floor((Date.now() / 1000))
         })
     }
 
@@ -253,5 +335,48 @@ export const logout = async (req, res, next) => {
 
 }
 
+
+//-----------------------forgotPassword---------------------------
+
+export const forgotPassword = async (req, res, next) => {
+
+    const { email } = req.body;
+
+    await sendEmailOtp({ email, isConfirmed: true })
+
+    return res.status(201).json({ message: "done" })
+}
+
+
+//-----------------------resetPassword---------------------------
+
+export const resetPassword = async (req, res, next) => {
+
+    const { email, code, password } = req.body;
+
+    const otp = await getValue(`otp::${email}`)
+
+    if (!otp) throw new Error("token expired")
+
+    if (! await Compare(code, otp)) throw new Error("invalid otp")
+
+    const user = await dbService.findOneAndUpdate({
+        model: userModel,
+        filter: {
+            email,
+            isConfirmed: { $exists: true }
+        },
+        update: {
+            password: await Hash(password, 12),
+            changeCredentialAt: new Date()
+        }
+    })
+
+    if (!user) throw new Error("user doesnt exist or already confirmed", { cause: 400 })
+
+    await deleteKey(`otp::${email}`)
+
+    return res.status(201).json({ message: "done" })   
+}
 
 
